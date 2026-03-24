@@ -113,38 +113,14 @@ function parseTextLines(text: string): RawTransaction[] {
   return transactions;
 }
 
-// ── PDF text extraction using pdfjs-dist ────────────────────────────────────
+// ── PDF text extraction using pdf-parse ──────────────────────────────────────
 
 async function extractPdfText(
   buffer: Buffer
 ): Promise<{ text: string; numPages: number }> {
-  // Use legacy build for Node.js (no worker needed)
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs') as any;
-
-  const data = new Uint8Array(buffer);
-  const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
-
-  let fullText = '';
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-
-    // Replicate pdf-parse logic: newline when y-position changes
-    let lastY: number | null = null;
-    for (const item of content.items) {
-      if (item.str !== undefined) {
-        const y = item.transform?.[5];
-        if (lastY !== null && y !== undefined && Math.abs(lastY - y) > 1) {
-          fullText += '\n';
-        }
-        fullText += item.str;
-        if (y !== undefined) lastY = y;
-      }
-    }
-    fullText += '\n';
-  }
-
-  return { text: fullText, numPages: doc.numPages };
+  const pdf = (await import('pdf-parse')).default;
+  const data = await pdf(buffer);
+  return { text: data.text, numPages: data.numpages };
 }
 
 // ── Route handler ───────────────────────────────────────────────────────────
