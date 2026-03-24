@@ -44,8 +44,15 @@ function parseTextLines(text: string): RawTransaction[] {
   let section: 'deposits' | 'withdrawals' | 'checks' | null = null;
 
   const patterns = [
+    // KeyBank concatenated: MM/DDDescription$Amount
     /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s*(.+?)\$([\d,]+\.\d{2})\s*$/,
+    // Generic spaced: MM/DD  Description  $Amount or Amount
     /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+\$?([\d,]+\.\d{2})\s*$/,
+    // Negative amount with -$: MM/DD  Description  -$Amount
+    /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+-\$([\d,]+\.\d{2})\s*$/,
+    // Signed amount without $: MM/DD  Description  -Amount
+    /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(-[\d,]+\.\d{2})\s*$/,
+    // Tab-separated
     /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\t+(.+?)\t+\$?([\d,]+\.\d{2})\s*$/,
   ];
 
@@ -63,19 +70,45 @@ function parseTextLines(text: string): RawTransaction[] {
 
     if (lower.startsWith('total')) continue;
     if (lower.startsWith('page ')) continue;
+    if (lower.startsWith('beginning balance')) continue;
+    if (lower.startsWith('ending balance')) continue;
+    if (lower.startsWith('ending daily')) continue;
     // Skip header rows (both concatenated and spaced variants)
-    if (/^date\s*description\s*amount$/i.test(line)) continue;
+    if (/^date\s*(of\s+)?(\w+\s+)*description/i.test(line)) continue;
     if (/^number\s*date\s*amount$/i.test(line)) continue;
+    if (/^date\s+description\s+deposits\s+withdrawals/i.test(line)) continue;
+    if (/^date\s+description\s+credits\s+debits/i.test(line)) continue;
+    if (/^posting\s+date/i.test(line)) continue;
+    if (/^transaction\s+detail/i.test(line)) continue;
+    if (/^transaction\s+history/i.test(line)) continue;
+    if (/^account\s+(number|summary|activity)/i.test(line)) continue;
 
-    if (lower.match(/^deposits?\b/) || lower === 'deposits (money in)') {
+    // Section detection — supports KeyBank, Chase, BofA, Wells Fargo, generic
+    if (
+      lower.match(/^deposits?\b/) ||
+      lower === 'deposits (money in)' ||
+      lower.match(/^deposits?\s+and\s+other\s+credits/) ||
+      lower.match(/^deposits?\s+and\s+additions/) ||
+      lower.match(/^credits?\s+and\s+deposits/)
+    ) {
       section = 'deposits';
       continue;
     }
-    if (lower.match(/^(other\s+)?withdrawals?\b/) || lower === 'withdrawals (money out)') {
+    if (
+      lower.match(/^(other\s+)?withdrawals?\b/) ||
+      lower === 'withdrawals (money out)' ||
+      lower.match(/^withdrawals?\s+and\s+other\s+debits/) ||
+      lower.match(/^withdrawals?\s+and\s+subtractions/) ||
+      lower.match(/^debits?\s+and\s+withdrawals/) ||
+      lower.match(/^banking\/debit\s+card\s+transactions/) ||
+      lower.match(/^electronic\s+(payments|withdrawals)/) ||
+      lower.match(/^purchases?\s+and\s+adjustments/) ||
+      lower.match(/^other\s+deductions/)
+    ) {
       section = 'withdrawals';
       continue;
     }
-    if (lower.match(/^checks?\b/)) {
+    if (lower.match(/^checks?\b/) || lower.match(/^checks?\s+paid/)) {
       section = 'checks';
       continue;
     }
@@ -100,8 +133,10 @@ function parseTextLines(text: string): RawTransaction[] {
       if (m) {
         const [, dateStr, desc, amtStr] = m;
         let amount = tryParseAmount(amtStr) || 0;
-        if (section === 'withdrawals' || section === 'checks') {
-          amount = -Math.abs(amount);
+        // If amount is already negative (from the statement), keep it
+        // Otherwise, negate if we're in a withdrawals/checks section
+        if (amount > 0 && (section === 'withdrawals' || section === 'checks')) {
+          amount = -amount;
         }
         const date = tryParseDate(dateStr) || dateStr;
         transactions.push({ date, description: desc.trim(), amount });

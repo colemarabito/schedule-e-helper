@@ -62,3 +62,11 @@ export function deleteReport(id: string): void {
   const reports = getReports().filter((r) => r.id !== id);
   localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
 }
+
+// ── Clear All Data ──────────────────────────────────────────────────────────
+
+export function clearAllData(): void {
+  localStorage.removeItem(PROPERTIES_KEY);
+  localStorage.removeItem(RULES_KEY);
+  localStorage.removeItem(REPORTS_KEY);
+}
